@@ -1,0 +1,6 @@
+google-cloud-storage
+python-dotenv
+pytest
+requests
+python-dotenv
+httpx
