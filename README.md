@@ -24,7 +24,7 @@ A Python tool for fetching option chain data from Charles Schwab API, specifical
 
    ```bash
    git clone --recursive <repository-url>
-   cd options-data-manager
+   cd options-strike-finder
    ```
 
 2. **Create and activate virtual environment:**
@@ -78,16 +78,16 @@ GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
 ### Basic Usage
 
 ```python
-from options_data_manager import OptionsDataManager
+from options_symbol_finder import OptionsSymbolFinder
 
-# Initialize the manager
-manager = OptionsDataManager()
+# Initialize the finder
+finder = OptionsSymbolFinder()
 
 # Get option symbols for SPY with 2 DTE
 symbols = ['SPY']
 days_to_expiration = 2
 
-result = manager.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
+result = finder.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
 
 # Print results
 for symbol, option_data in result.items():
@@ -103,22 +103,22 @@ for symbol, option_data in result.items():
 symbols = ['SPY', 'QQQ', 'AAPL']
 days_to_expiration = 5
 
-result = manager.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
+result = finder.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
 ```
 
 ### Run from Command Line
 
 ```bash
-python options-data-manager.py
+python options_symbol_finder.py
 ```
 
 ## API Reference
 
-### OptionsDataManager Class
+### OptionsSymbolFinder Class
 
 #### `__init__(auth=None)`
 
-Initialize the options data manager.
+Initialize the options symbol finder.
 
 **Parameters:**
 
@@ -221,8 +221,8 @@ Puts: ['SPY   240119P00480000', 'SPY   240119P00485000', ...]
 ## File Structure
 
 ```
-options-data-manager/
-├── options-data-manager.py          # Main application
+options-strike-finder/
+├── options_symbol_finder.py         # Main application
 ├── requirements.txt                 # Python dependencies
 ├── README.md                        # This file
 ├── .env                             # Environment variables (create this)

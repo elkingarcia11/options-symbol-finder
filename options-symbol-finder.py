@@ -270,13 +270,13 @@ class OptionsSymbolFinder:
 
 def main():
     # Example usage
-    manager = OptionsDataManager()
+    symbol_finder = OptionsSymbolFinder()
     
     # Get option symbols for AAPL with 2 DTE
     symbols = ['SPY', 'QQQ']
     days_to_expiration = 2
     
-    result = manager.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
+    result = symbol_finder.get_option_symbols_for_multiple_symbols(symbols, days_to_expiration)
     
     for symbol, option_data in result.items():
         print(f"\n📊 {symbol} Option Symbols:")
