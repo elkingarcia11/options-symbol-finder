@@ -2,3 +2,4 @@ schwab_refresh_token.txt
 service-account-credentials.json
 .env
 venv/
+__pycache__/
