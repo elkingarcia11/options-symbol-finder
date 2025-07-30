@@ -124,14 +124,14 @@ class OptionsSymbolFinder:
 
     def get_option_symbols(self, symbol: str, expiration_date: str) -> Dict[str, List[str]]:
         """
-        Get option symbols for the nearest strike price plus 3 strikes above and 3 strikes below for both calls and puts.
+        Get option symbols for the nearest strike price plus 1 strike above and 1 strike below for both calls and puts.
         
         Args:
             symbol (str): The stock symbol (e.g., 'AAPL')
             expiration_date (str): The expiration date in YYYY-MM-DD format
             
         Returns:
-            Dict[str, List[str]]: Dictionary with 'calls' and 'puts' lists containing option symbols for 7 strikes total
+            Dict[str, List[str]]: Dictionary with 'calls' and 'puts' lists containing option symbols for 3 strikes total
         """
         try:
             # Get all option chains in one call
@@ -185,14 +185,14 @@ class OptionsSymbolFinder:
             nearest_put_strike = min(put_strikes, key=lambda x: abs(x - underlying_price))
             nearest_put_index = put_strikes.index(nearest_put_strike)
             
-            # Get the 7 strikes for calls (nearest + 3 above + 3 below)
-            call_start_index = max(0, nearest_call_index - 3)
-            call_end_index = min(len(call_strikes), nearest_call_index + 4)
+            # Get the 3 strikes for calls (nearest + 1 above + 1 below)
+            call_start_index = max(0, nearest_call_index - 1)
+            call_end_index = min(len(call_strikes), nearest_call_index + 2)
             selected_call_strikes = call_strikes[call_start_index:call_end_index]
             
-            # Get the 7 strikes for puts (nearest + 3 above + 3 below)
-            put_start_index = max(0, nearest_put_index - 3)
-            put_end_index = min(len(put_strikes), nearest_put_index + 4)
+            # Get the 3 strikes for puts (nearest + 1 above + 1 below)
+            put_start_index = max(0, nearest_put_index - 1)
+            put_end_index = min(len(put_strikes), nearest_put_index + 2)
             selected_put_strikes = put_strikes[put_start_index:put_end_index]
             
             # Clear and rebuild the option symbols lists with only the selected strikes

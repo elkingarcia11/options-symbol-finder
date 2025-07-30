@@ -200,7 +200,7 @@ chains = finder.get_all_option_chains('SPY', '2024-01-19')
 
 #### `get_option_symbols(symbol, expiration_date)`
 
-Get option symbols for 7 closest strikes (current +3 above, +3 below).
+Get option symbols for 3 closest strikes (current +1 above, +1 below).
 
 **Parameters:**
 
