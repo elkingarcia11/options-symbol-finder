@@ -164,31 +164,14 @@ class OptionsSymbolFinder:
             
             quote = quote_data[symbol]
             
-            # Priority order for regular session price:
-            # 1. Open price (where regular trading begins)
-            # 2. Previous close (stable fallback)
-            # 3. Last price as fallback
-            
-            # Use open price as primary choice - this is where regular trading actually starts
-            if 'openPrice' in quote and quote['openPrice'] > 0:
-                regular_price = quote['openPrice']
-                print(f"💰 Using open price for {symbol}: ${regular_price:.2f}")
-                return regular_price
-            
-            # Fallback to previous close if open price not available
-            elif 'closePrice' in quote and quote['closePrice'] > 0:
-                regular_price = quote['closePrice']
-                print(f"💰 Using previous close price for {symbol}: ${regular_price:.2f}")
-                return regular_price
-            
-            # Last resort: current price
-            elif 'lastPrice' in quote and quote['lastPrice'] > 0:
-                regular_price = quote['lastPrice']
-                print(f"⚠️ Using current price for {symbol}: ${regular_price:.2f} (may include pre/after market)")
+            # Use lastPrice from quote section
+            if 'quote' in quote and 'lastPrice' in quote['quote'] and quote['quote']['lastPrice'] > 0:
+                regular_price = quote['quote']['lastPrice']
+                print(f"💰 Using last price for {symbol}: ${regular_price:.2f}")
                 return regular_price
             
             else:
-                raise Exception(f"No valid price found in quote data for {symbol}")
+                raise Exception(f"No valid lastPrice found in quote data for {symbol}")
                 
         except Exception as e:
             print(f"❌ Error getting regular hours price for {symbol}: {e}")
