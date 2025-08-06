@@ -122,16 +122,145 @@ class OptionsSymbolFinder:
             print(f"❌ Error getting option chains: {e}")
             return {}
 
+    def get_regular_hours_price(self, symbol: str) -> float:
+        """
+        Get the regular trading hours price for the underlying symbol.
+        Uses open price (after settling) or previous close, avoiding pre-market/after-hours gaps.
+        Waits until 9:30:30 AM ET if market just opened to let prices settle.
+        
+        Args:
+            symbol (str): The stock symbol (e.g., 'AAPL')
+            
+        Returns:
+            float: Regular session price
+        """
+        try:
+            # Wait for market to settle if we're just after opening
+            self._wait_for_market_settlement()
+            
+            # Get fresh token
+            access_token = self.auth.get_valid_access_token(use_gcs_refresh_token=True)
+            if not access_token:
+                raise Exception("Failed to get valid access token")
+            
+            headers = {
+                'Authorization': f'Bearer {access_token}',
+                'Accept': 'application/json'
+            }
+            
+            # Get quote data which includes regular session prices
+            url = f"https://api.schwabapi.com/marketdata/v1/quotes?symbols={symbol}"
+            
+            with httpx.Client() as client:
+                response = client.get(url, headers=headers)
+                
+            if response.status_code != 200:
+                raise Exception(f"Quote request failed: {response.status_code} - {response.text}")
+            
+            quote_data = response.json()
+            
+            if symbol not in quote_data:
+                raise Exception(f"No quote data found for {symbol}")
+            
+            quote = quote_data[symbol]
+            
+            # Priority order for regular session price:
+            # 1. Open price (where regular trading begins)
+            # 2. Previous close (stable fallback)
+            # 3. Last price as fallback
+            
+            # Use open price as primary choice - this is where regular trading actually starts
+            if 'openPrice' in quote and quote['openPrice'] > 0:
+                regular_price = quote['openPrice']
+                print(f"💰 Using open price for {symbol}: ${regular_price:.2f}")
+                return regular_price
+            
+            # Fallback to previous close if open price not available
+            elif 'closePrice' in quote and quote['closePrice'] > 0:
+                regular_price = quote['closePrice']
+                print(f"💰 Using previous close price for {symbol}: ${regular_price:.2f}")
+                return regular_price
+            
+            # Last resort: current price
+            elif 'lastPrice' in quote and quote['lastPrice'] > 0:
+                regular_price = quote['lastPrice']
+                print(f"⚠️ Using current price for {symbol}: ${regular_price:.2f} (may include pre/after market)")
+                return regular_price
+            
+            else:
+                raise Exception(f"No valid price found in quote data for {symbol}")
+                
+        except Exception as e:
+            print(f"❌ Error getting regular hours price for {symbol}: {e}")
+            return 0
+    
+    def _wait_for_market_settlement(self):
+        """
+        Wait until 9:31 AM after market open for prices to settle after opening auction.
+        This avoids selecting strikes based on opening auction volatility and gives
+        a full minute for market makers to establish proper spreads.
+        """
+        try:
+            from datetime import datetime, time
+            import pytz
+            import time as time_module
+            
+            # Define ET timezone and market settlement time
+            et_tz = pytz.timezone('US/Eastern')
+            
+            now_et = datetime.now(et_tz)
+            current_time = now_et.time()
+            current_date = now_et.date()
+            
+            # Check if it's a weekday and within the settlement window
+            if current_date.weekday() < 5:  # Monday = 0, Friday = 4
+                market_opens = time(9, 30, 0)   # 9:30:00 AM ET
+                settlement_time = time(9, 31, 0)  # 9:31:00 AM ET (1 full minute)
+                
+                # If we're between 9:30:00 and 9:31:00, wait for settlement
+                if market_opens <= current_time < settlement_time:
+                    settlement_dt = datetime.combine(current_date, settlement_time)
+                    settlement_dt = et_tz.localize(settlement_dt)
+                    
+                    wait_seconds = (settlement_dt - now_et).total_seconds()
+                    
+                    if wait_seconds > 0:
+                        print(f"⏳ Market just opened, waiting {wait_seconds:.0f}s until 9:31 AM for price settlement...")
+                        print(f"   This ensures strikes are based on settled prices, not opening auction volatility")
+                        time_module.sleep(wait_seconds)
+                        print(f"✅ Price settlement period complete (9:31 AM), proceeding with strike generation")
+                        
+        except Exception as e:
+            # Don't fail the whole process if settlement wait fails
+            print(f"⚠️ Warning: Could not check market settlement timing: {e}")
+
     def get_option_symbols(self, symbol: str, expiration_date: str) -> Dict[str, List[str]]:
         """
-        Get option symbols for the nearest strike price plus 1 strike above and 1 strike below for both calls and puts.
+        Get option symbols using round down/up strategy for strike selection.
+        Uses regular trading hours price and waits until 9:31 AM for price settlement.
+        
+        Market Timing Strategy:
+        - Waits until 9:31 AM (1 minute after open) for price settlement
+        - Uses openPrice > closePrice > lastPrice priority for pricing
+        - Avoids pre-market/after-hours gaps and opening auction volatility
+        
+        Strike Selection Strategy (4 strikes total):
+        CALLS (2 strikes below current price):
+        - Round down (current price): floor of current price
+        - Round down - 1: one strike below floor
+        
+        PUTS (2 strikes above current price):  
+        - Round up (current price): ceil of current price
+        - Round up + 1: one strike above ceil
+        
+        Example: Price $631.50 → Calls [C630, C631] + Puts [P632, P633]
         
         Args:
             symbol (str): The stock symbol (e.g., 'AAPL')
             expiration_date (str): The expiration date in YYYY-MM-DD format
             
         Returns:
-            Dict[str, List[str]]: Dictionary with 'calls' and 'puts' lists containing option symbols for 3 strikes total
+            Dict[str, List[str]]: Dictionary with 'calls' and 'puts' lists containing option symbols for up to 4 strikes
         """
         try:
             # Get all option chains in one call
@@ -139,11 +268,22 @@ class OptionsSymbolFinder:
             
             option_symbols = {
                 'calls': [],
-                'puts': []
+                'puts': [],
+                'strikes': {
+                    'calls': [],
+                    'puts': []
+                }
             }
             
-            # Get current underlying price to find nearest strike
-            underlying_price = all_chains.get('underlyingPrice', 0)
+            # Get regular trading hours price instead of current option chain price
+            underlying_price = self.get_regular_hours_price(symbol)
+            
+            if underlying_price <= 0:
+                # Fallback to option chain price if regular hours price fails
+                underlying_price = all_chains.get('underlyingPrice', 0)
+                print(f"⚠️ Fallback to option chain price for {symbol}: ${underlying_price:.2f}")
+            
+            print(f"🎯 Strike selection for {symbol} based on price: ${underlying_price:.2f}")
             
             # Collect all available strikes for calls and puts
             call_strikes = []
@@ -173,27 +313,38 @@ class OptionsSymbolFinder:
                                 option_symbols['puts'].append(option['symbol'])
                                 break
             
-            # Sort strikes and find nearest strike
+            # Sort strikes
             call_strikes.sort()
             put_strikes.sort()
             
-            # Find nearest strike for calls
-            nearest_call_strike = min(call_strikes, key=lambda x: abs(x - underlying_price))
-            nearest_call_index = call_strikes.index(nearest_call_strike)
+            # Calculate target strikes: calls below current price, puts above current price
+            round_down_strike = int(underlying_price)  # Floor of current price
+            round_up_strike = round_down_strike + 1    # Ceiling of current price
             
-            # Find nearest strike for puts
-            nearest_put_strike = min(put_strikes, key=lambda x: abs(x - underlying_price))
-            nearest_put_index = put_strikes.index(nearest_put_strike)
+            # CALLS: Track 2 strikes below current price (round down, round down - 1)
+            target_call_strikes = [
+                round_down_strike,      # Round down (current price)
+                round_down_strike - 1   # Round down - 1
+            ]
             
-            # Get the 3 strikes for calls (nearest + 1 above + 1 below)
-            call_start_index = max(0, nearest_call_index - 1)
-            call_end_index = min(len(call_strikes), nearest_call_index + 2)
-            selected_call_strikes = call_strikes[call_start_index:call_end_index]
+            # PUTS: Track 2 strikes above current price (round up, round up + 1)  
+            target_put_strikes = [
+                round_up_strike,        # Round up (current price)
+                round_up_strike + 1     # Round up + 1
+            ]
             
-            # Get the 3 strikes for puts (nearest + 1 above + 1 below)
-            put_start_index = max(0, nearest_put_index - 1)
-            put_end_index = min(len(put_strikes), nearest_put_index + 2)
-            selected_put_strikes = put_strikes[put_start_index:put_end_index]
+            print(f"🎯 Price ${underlying_price:.2f} → Calls {target_call_strikes} | Puts {target_put_strikes}")
+            
+            # Filter to only include strikes that actually exist in the option chain
+            selected_call_strikes = [strike for strike in target_call_strikes if strike in call_strikes]
+            selected_put_strikes = [strike for strike in target_put_strikes if strike in put_strikes]
+            
+            print(f"📈 Available call strikes: {selected_call_strikes}")
+            print(f"📉 Available put strikes: {selected_put_strikes}")
+            
+            # Store the selected strikes for reference
+            option_symbols['strikes']['calls'] = selected_call_strikes
+            option_symbols['strikes']['puts'] = selected_put_strikes
             
             # Clear and rebuild the option symbols lists with only the selected strikes
             option_symbols['calls'] = []
